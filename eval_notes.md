@@ -19,7 +19,7 @@
 1. **Clean the corpus** — remove index pages and running headers/footers. (Evidence: junk chunks 527, 530 in Q3/Q6 top-k.) Highest value, lowest effort.
 2. **Fix chunk boundaries** — split on sentence boundaries, not raw token counts. (Evidence: ragged mid-sentence chunk starts seen since session 4; muddies embeddings.)
 3. **Improve multi-topic retrieval** — test hybrid search (vector + BM25) and reranking from a larger candidate pool. (Evidence: Q3 single-topic retrieval failure.)
-4. **Test top-k values** (3 vs 5 vs 8) and measure recall vs. noise. (Evidence: Q2 precise-figure fragility.)
+4. **Test top-k values** (3 vs 5 vs 8) and measure recall vs. noise. (Evidence: Q2 precise-figure fragility. The precise stat wasn't in top-3". Try top_k=5 and measuring whether recall improves without too much noise.)
 
 ## Formal evaluation set (to build in session 6)
 
