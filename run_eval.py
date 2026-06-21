@@ -1,4 +1,4 @@
-from query import load_query_engine
+from query_rerank import load_query_engine
 from eval_set import EVAL_SET
 
 
