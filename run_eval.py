@@ -58,7 +58,7 @@ def main():
             f.write(f"**Q:** {r['question']}\n\n")
             f.write(f"**A:** {r['answer']}\n\n")
             f.write(f"**Retrieved:** pages={r['pages']} scores={r['scores']}\n\n")
-            f.write("**Manual score (you fill in):** \n\n---\n\n")
+            f.write("**Manual score:** \n\n---\n\n")
 
     print("\nFull answers written to eval_run_baseline.md for manual review.")
 

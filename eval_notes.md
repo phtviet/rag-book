@@ -21,16 +21,6 @@
 3. **Improve multi-topic retrieval** — test hybrid search (vector + BM25) and reranking from a larger candidate pool. (Evidence: Q3 single-topic retrieval failure.)
 4. **Test top-k values** (3 vs 5 vs 8) and measure recall vs. noise. (Evidence: Q2 precise-figure fragility. The precise stat wasn't in top-3". Try top_k=5 and measuring whether recall improves without too much noise.)
 
-## Formal evaluation set (to build in session 6)
-
-Target: 20 hand-written Q&A pairs across categories: factual lookup, specific detail/figure, multi-topic synthesis, comparison, out-of-corpus, vague phrasing. Each with a known-correct answer to score against. This table becomes the measurement instrument for every week-2 experiment — the eval results table is the project's most important artifact.
-
-| # | Question | Category | Expected answer | Notes |
-|---|----------|----------|-----------------|-------|
-|   |          |          |                 |       |
-
----
-
 ## Raw stress-test log (week 1)
 
 ## Q1: What is quantization?
@@ -351,3 +341,12 @@ These attacks are particularly concerning for applications that have access to p
   page 259 (score 0.675): 12 Outputs that can cause brand risks and misinformation are discussed briefly in Chapter 4. 13 One such remote code execution risk was found in LangC...
   page 236 (score 0.658): a real and useful skill to have. The problem is when prompt engineering is the only thing people know.” To build production-ready AI applications, you...
   page 272 (score 0.656): Defenses Against Prompt Attacks Overall, keeping an application safe first requires understanding what attacks your system is susceptible to. There ar...
+
+## Experiment 1: Corpus cleaning (remove index pages 521–533)
+- Prediction: retrieval cleaner, answer score roughly unchanged.
+- Chunk count: 706 → 682
+- Manual score: 17C/2P/1W → 16C/2P/2W  (REGRESSION of one correct answer)
+- Cause: Q5 regressed Correct→Wrong. Retrieval changed 527→67; the removed index page 527 was the only retrieved chunk containing the keyword "evaluation," which had been bridging Q5's two topics. No offsetting improvement (earlier apparent gain was a scoring error on Q13).
+- Mechanism: junk index page was accidentally load-bearing for the synthesis question.
+- Verdict: Prediction WRONG, instructively. Cleaning lowered the score by exposing that Q5 never truly worked — it was propped up by keyword-dense junk. Keep the cleaning anyway (depending on junk is fragile and unintentional); fix Q5 properly via retrieval improvement (hybrid/rerank).
+- Caveat: LLM is non-deterministic; ideally run eval 2–3× and average to confirm Q5 effect isn't variance. But the retrieval-page change (527→67) makes Q5's regression attributable to cleaning, not noise.

@@ -6,12 +6,13 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 
 from extract import extract_book
 
+INDEX_PAGES = set(range(521, 534))  # 521..533 inclusive = back-of-book index
 
 def build_index():
     # 1. Extract the book text (reusing session 2's function)
     print("Extracting book text...")
-    pages = extract_book("ai_engineering.pdf", skip_front_pages=20, skip_back_pages=1)
-    print(f"  {len(pages)} pages extracted.")
+    pages = extract_book("ai_engineering.pdf", skip_front_pages=20, skip_back_pages=1, exclude_pages=INDEX_PAGES)
+    print(f"  {len(pages)} pages extracted (index pages 521-533 excluded).")
 
     # 2. Convert pages into LlamaIndex Document objects.
     #    We keep the page number as metadata so retrieved chunks can cite their source page.
@@ -34,6 +35,11 @@ def build_index():
     #    PersistentClient writes to disk, so the index survives between runs.
     print("Setting up ChromaDB...")
     db = chromadb.PersistentClient(path="./chroma_db")
+    # Delete any existing collection so re-indexing replaces rather than appends
+    try:
+        db.delete_collection("ai_engineering")
+    except Exception:
+        pass
     chroma_collection = db.get_or_create_collection("ai_engineering")
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)

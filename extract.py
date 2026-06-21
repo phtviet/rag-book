@@ -16,24 +16,33 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def extract_book(pdf_path: str, skip_front_pages: int = 0, skip_back_pages: int = 0):
-    """Extract text from a PDF, returning a list of (page_number, text) tuples."""
+def extract_book(pdf_path: str, skip_front_pages: int = 0, skip_back_pages: int = 0,
+                 exclude_pages: set | None = None):
+    """Extract text from a PDF, returning a list of (page_number, text) tuples.
+    exclude_pages: a set of 1-indexed book page numbers to skip entirely (e.g. the back-of-book index)."""
+    if exclude_pages is None:
+        exclude_pages = set()
+
     reader = PdfReader(pdf_path)
     total_pages = len(reader.pages)
-    
+
     pages = []
     start = skip_front_pages
     end = total_pages - skip_back_pages
-    
+
     for page_num in range(start, end):
+        human_page = page_num + 1  # 1-indexed for humans
+
         raw_text = reader.pages[page_num].extract_text()
         cleaned = clean_text(raw_text)
-        # Skip pages that came out mostly empty (covers, blank pages)
+
         if len(cleaned) < 50:
             continue
-        # page_num is zero-indexed internally; store as 1-indexed for humans
-        pages.append((page_num + 1, cleaned))
-    
+        if human_page in exclude_pages:   # NEW: skip excluded pages (e.g. index)
+            continue
+
+        pages.append((human_page, cleaned))
+
     return pages
 
 
