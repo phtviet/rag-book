@@ -25,10 +25,10 @@ python extract.py
 
 - [x] Project setup and hello-world LLM call
 - [x] PDF ingestion and text extraction
-- [ ] Vector index with default chunking
-- [ ] End-to-end query pipeline
-- [ ] Evaluation harness with 20 hand-written Q&A pairs
-- [ ] Chunking experiments
+- [x] Vector index with default chunking
+- [x] End-to-end query pipeline
+- [x] Evaluation harness with 20 hand-written Q&A pairs
+- [x] Chunking experiments
 - [ ] Hybrid search (vector + BM25)
 - [ ] Reranking
 - [ ] Prompt tuning
