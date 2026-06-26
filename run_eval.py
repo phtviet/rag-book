@@ -1,3 +1,4 @@
+import time
 from query_rerank import load_query_engine
 from eval_set import EVAL_SET
 
@@ -8,6 +9,26 @@ def check_expected(answer: str, expected: list[str]) -> bool:
     return all(fact.lower() in answer_lower for fact in expected)
 
 
+def query_with_retry(query_engine, question: str, max_retries: int = 3):
+    """Query the engine, retrying transient errors with exponential backoff.
+
+    Transient API failures (e.g. Anthropic 500 Internal Server Error) usually
+    succeed on retry. We wait 1s, 2s, 4s between attempts, then give up.
+    """
+    for attempt in range(max_retries):
+        try:
+            return query_engine.query(question)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                print(f"  [retry {attempt + 1}/{max_retries - 1}] "
+                      f"{type(e).__name__}: {e} — waiting {wait}s...")
+                time.sleep(wait)
+            else:
+                # Out of retries — re-raise so the caller can handle it.
+                raise
+
+
 def main():
     print("Loading query engine...")
     query_engine = load_query_engine()
@@ -15,13 +36,25 @@ def main():
 
     results = []
     for item in EVAL_SET:
-        response = query_engine.query(item["question"])
-        answer = str(response)
+        try:
+            response = query_with_retry(query_engine, item["question"])
+            if response is None:
+                raise RuntimeError("query returned None")
+            answer = str(response)
+            pages = [n.metadata.get("page", "?") for n in response.source_nodes]
+            scores = [round(n.score, 3) if n.score is not None else None
+                      for n in response.source_nodes]
+        except Exception as e:
+            print(f"  Q{item['id']} FAILED after retries: {type(e).__name__}: {e}")
+            answer = f"[ERROR: {type(e).__name__}: {e}]"
+            pages = []
+            scores = []
 
         # Automated check
         if item["out_of_corpus"]:
-            # For out-of-corpus, a rough heuristic: a good answer signals absence.
-            decline_signals = ["does not", "doesn't", "no information", "not contain", "cannot find"]
+            decline_signals = ["does not", "doesn't", "no information",
+                               "not contain", "cannot find", "can't provide",
+                               "don't have information"]
             auto_pass = any(sig in answer.lower() for sig in decline_signals)
         else:
             auto_pass = check_expected(answer, item["expected_contains"])
@@ -32,8 +65,8 @@ def main():
             "question": item["question"],
             "answer": answer,
             "auto_pass": auto_pass,
-            "pages": [n.metadata.get("page", "?") for n in response.source_nodes],
-            "scores": [round(n.score, 3) if n.score is not None else None for n in response.source_nodes],
+            "pages": pages,
+            "scores": scores,
         })
 
     # Print a compact report

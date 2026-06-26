@@ -1,48 +1,80 @@
 # RAG Evaluation Notes
 
+_This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI Engineering book). Updated each session, then pushed to GitHub. Manual score is the source of truth throughout; automated substring score is unreliable._
+
 ## Eval results table (the project's most important artifact)
 
 | Experiment | Change | Chunks | Correct | Partial | Wrong | Note |
 |-----------|--------|--------|---------|---------|-------|------|
-| Baseline | top_k=3, chunk 512/50, full corpus | 706 | 17 | 2 | 1 | Manual score; auto-score unreliable (1 false pass Q14, 1 false fail Q17) |
-| Exp 1 | Remove index pages 521-533 | 682 | 16 | 2 | 2 | REGRESSION. Q5 went Correct->Wrong; removed index page 527 was the only retrieved chunk with keyword "evaluation", accidentally bridging Q5's two topics |
-| Exp 2 | Reranking: retrieve top_k=20, cross-encoder (bge-reranker-base) -> top 3 | 682 | 19 | 1 | 0 | BEST SO FAR (+3 vs Exp 1). Q5 recovered (Wrong->Correct, attributable). Q4 regressed Correct->Partial (lost student/teacher chunk). Cross-encoder scores far more calibrated |
+| Baseline | top_k=3, chunk 512/50, full corpus | 706 | 17 | 2 | 1 | Auto-score unreliable (1 false pass Q14, 1 false fail Q17) |
+| Experiment 1 | Remove index pages 521-533 | 682 | 16 | 2 | 2 | REGRESSION. Q5 Correct->Wrong; removed index page 527 was the only retrieved chunk with keyword "evaluation", accidentally bridging Q5's two topics |
+| Experiment 2 | Reranking: bi-encoder top_k=20 -> cross-encoder (bge-reranker-base) top_n=3 | 682 | 19 | 1 | 0 | BEST SO FAR (+3 vs Exp 1). Q5 recovered. Q4 regressed Correct->Partial. Cross-encoder scores far more calibrated |
+| Exp 2 sub-tests | top_n=4, then top_n=8 (Q4 investigation only) | 682 | (19) | (1) | 0 | top_n=4 no change. top_n=8 recovers Q4 but only by including a rank-6 chunk scored 0.144 - blunt, pads every other question. Not adopted globally. See Q4 investigation below |
 
-Manual score is the source of truth throughout. Automated substring score is unreliable.
+## Current system config
+
+- Corpus: 682 chunks (index pages 521-533 removed), chunk_size=512 / overlap=50
+- Embeddings: BAAI/bge-small-en-v1.5 (bi-encoder, local)
+- Retrieval: bi-encoder top_k=20 -> cross-encoder rerank (BAAI/bge-reranker-base) -> top_n=3
+- LLM: claude-sonnet-4-5 via llama-index-llms-anthropic
+- Best result: 19/20 correct (Exp 2)
+
+## How to run an experiment (process checklist)
+
+1. Write a PREDICTION before running (commit to it; the prediction-vs-result gap is where the learning is).
+2. Change ONE variable only. Hold everything else constant vs. the current baseline.
+3. Rename the previous `eval_run_*.md` so it isn't overwritten.
+4. Run `run_eval.py`; MANUALLY score all 20 (manual = source of truth).
+5. Compare per-question vs. the prior run - a flat total can hide a compositional change (see Exp 1).
+6. Add a row to the results table + a detail entry below. Note any regression honestly.
+7. Caveat for small deltas: LLM is non-deterministic; rerun 2-3x and average to separate signal from noise.
 
 ## Experiment log (detail)
 
-### Baseline (Session 6)
+### Baseline
 - 20 hand-written Q&A pairs, verified reference answers written from the book.
 - Result: 17 correct / 2 partial / 1 wrong.
-- Meta-finding: substring auto-scoring produced 1 false PASS (Q14 - right keywords, wrong answer) and 1 false FAIL (Q17 - correct safety refusal not matched by decline-heuristic). Motivates LLM-as-judge.
+- Meta-finding: substring auto-scoring gave 1 false PASS (Q14 - right keywords, wrong answer) and 1 false FAIL (Q17 - correct safety refusal not matched by decline-heuristic). Motivates LLM-as-judge.
 
-### Experiment 1: Corpus cleaning (Session 7)
+### Experiment 1: Corpus cleaning
 - Change: removed back-of-book index, pages 521-533. Chunk count 706 -> 682.
 - Prediction: retrieval cleaner, answer score roughly unchanged.
 - Result: REGRESSION, 17 -> 16 correct. Q5 (synthesis) went Correct -> Wrong.
-- Mechanism: removed index page 527 was keyword-dense and contained "evaluation"; it was the only retrieved chunk bridging Q5's two topics. Removing it left no evaluation content in top-k, so the system correctly reported it couldn't answer.
-- Detection method note: digit-ratio diagnostic FOUND the index (cluster of high-ratio pages 521-533), but removal was done by PAGE RANGE, not ratio - because real content pages (351 numerical-formats figure, 76 language table, 88 transformer figure) also had high digit ratios. The signal used to DETECT a problem isn't always the signal used to FIX it.
-- Verdict: kept the cleaning anyway (depending on index keyword-soup is fragile and accidental). Q5 was never truly working - it was propped up by junk. Real fix = retrieval improvement.
+- Mechanism: removed index page 527 was keyword-dense and contained "evaluation"; it was the only retrieved chunk bridging Q5's two topics. Removing it left no evaluation content in top-k.
+- Detection-vs-fix note: digit-ratio diagnostic FOUND the index, but removal was by PAGE RANGE not ratio, because real content pages (351 figure, 76 table, 88 figure) also had high digit ratios. The signal used to DETECT a problem isn't always the one used to FIX it.
+- Verdict: kept the cleaning (depending on index keyword-soup is fragile and accidental); Q5 was never truly working. Real fix = retrieval improvement.
 - Lesson: a flat aggregate score can hide compositional regressions; always check WHICH questions changed.
 
-### Experiment 2: Reranking (Session 8)
-- Change: retrieve a wider pool (top_k=20) with the bi-encoder, then re-score with a cross-encoder reranker (BAAI/bge-reranker-base), keep top 3. Chunks unchanged at 682.
-- Prediction (sequencing): reranking-first is diagnostic - if it recovers Q5, the bridging chunk was always retrievable and just ranked too low; if not, would need hybrid search.
-- Result: BEST run so far. 19 correct / 1 partial / 0 wrong (+3 vs Exp 1).
-  - Q5 RECOVERED (Wrong -> Correct). Attributable: retrieval changed to pages 430/68/429; page 68 (early lifecycle/overview content) bridges evaluation + optimization. Note: the bridge came from an OVERVIEW chunk, not the evaluation chapter (120-185) itself - so retrieval is partially fixed; hybrid search could still pull true evaluation-chapter chunks but is now OPTIONAL, not required.
-  - Q4 REGRESSED (Correct -> Partial). Reranker selected quantization/compression-heavy chunks (451 x2, 344) and dropped the distillation chunk (419) that used the "student/teacher" terminology. top_n=3 may be too tight for comparison questions needing chunks from two distinct topics.
-- Side finding: cross-encoder produces far more CALIBRATED scores than the bi-encoder. Out-of-corpus questions now score ~0.01-0.04 (Q6 quantum 0.009, Q17 bombs 0.041) vs in-corpus 0.7-0.999. This makes a relevance THRESHOLD for declining plausible - which wasn't possible with bi-encoder scores (session 5: "similarity is relative, no absolute threshold"). Possible future experiment.
-- Caveat: some of the +3 may be LLM run-to-run variance, not reranking. Q5 is attributable (pages changed). To be rigorous, rerun eval 2-3x on baseline and reranking configs and average.
-- Bi-encoder vs cross-encoder (concept): bi-encoder embeds question and chunk SEPARATELY (fast, precomputable, crude). Cross-encoder processes question + chunk TOGETHER (accurate, cannot precompute, slow). Pattern: cheap bi-encoder narrows 682 -> 20, expensive cross-encoder picks 20 -> 3.
+### Experiment 2: Reranking
+- Change: bi-encoder retrieves wider pool (top_k=20), cross-encoder (bge-reranker-base) re-scores, keep top_n=3. Chunks unchanged (682).
+- Prediction: reranking-first is diagnostic - if it recovers Q5, the bridge chunk was retrievable but ranked too low.
+- Result: BEST run. 19 correct / 1 partial / 0 wrong (+3 vs Exp 1).
+  - Q5 RECOVERED (Wrong->Correct). Attributable: retrieval changed to pages 430/68/429; page 68 (overview/lifecycle) bridges evaluation + optimization. Bridge came from an OVERVIEW chunk, not the evaluation chapter itself - so hybrid search is now OPTIONAL, not required.
+  - Q4 REGRESSED (Correct->Partial). See Q4 investigation below.
+- Side finding: cross-encoder scores far more CALIBRATED than bi-encoder. Out-of-corpus now ~0.01-0.04 vs in-corpus 0.7-0.999. Makes a relevance THRESHOLD for declining plausible (wasn't possible with bi-encoder scores). Possible future experiment.
+- Concept: bi-encoder embeds question and chunk SEPARATELY (fast, precomputable, crude). Cross-encoder processes question+chunk TOGETHER (accurate, can't precompute, slow). Pattern: cheap narrows 682->20, expensive picks 20->3.
+
+### Q4 investigation (CLOSED)
+Question: "What's the difference between quantization and distillation?"
+- Baseline (no rerank, top_k=3): Q4 CORRECT - bi-encoder ranks the distillation-definition chunk (p419) 3rd, it makes the cut.
+- Reranking (top_n=3/4): Q4 PARTIAL - cross-encoder scores the distillation-definition chunk at only 0.144 (rank 6), demoting it below the cutoff. The reranker under-weights the SECONDARY topic ("distillation") in a two-topic comparison dominated by quantization chunks (top chunk scored 0.918).
+- top_n=8: recovers Q4, but only by widening enough to include the rank-6 chunk - pads every other question with low-relevance context (chunks scored 0.05-0.18). Blunt instrument; NOT adopted globally.
+- Likely root cause: the p419 chunk has a ragged boundary - it STARTS with unrelated "data lineage" text and only reaches the distillation definition halfway through, diluting its relevance score. Candidate for fixing via better CHUNKING (Session 9) rather than a wide top_n.
+- Decision: keep top_n=3; do NOT chase Q4 further in isolation. Revisit after chunking.
+- Bug found + fixed: inspect_retrieval.py was importing from `query` (baseline) not `query_rerank` - it had been inspecting the wrong engine. Fixed.
 
 ## Open threads / future experiments
-- Test reranker top_n = 4 or 5 (might recover Q4 by keeping both topic chunks for comparison questions).
-- Test hybrid search (vector + BM25) - optional now that reranking fixed Q5; might pull true evaluation-chapter chunks.
-- Chunking experiments: sentence-boundary splitting; chunk sizes 256/512/1024; one variable at a time.
+- CHUNKING (Session 9, next): sentence-boundary splitting; chunk sizes 256 / 512 / 1024; one variable at a time, re-index each. May fix Q4 properly (cleaner distillation chunk) AND help broadly.
+- top_k sweep (3 / 5 / 8) as a single documented experiment measuring the cost/quality curve.
 - LLM-as-judge: validate against the 20 human-scored answers; test specifically whether it catches the Q14 false-pass.
 - Relevance threshold for out-of-corpus, using calibrated cross-encoder scores.
-- Run eval 2-3x and average to separate true effects from LLM non-determinism.
+- Hybrid search (vector + BM25): OPTIONAL now - reranking already fixed Q5, and Q4's chunk is semantically retrieved (rank 3), so BM25 isn't needed there. Park unless a future question needs exact-term matching.
+- Rigor: rerun eval 2-3x and average before the week-3 writeup to firm up numbers.
+
+## Session 9 plan: chunking experiments
+- Hypothesis: ragged fixed-token chunk boundaries dilute embeddings and relevance scores (see Q4 p419 chunk). Sentence-boundary splitting and/or different chunk sizes may improve retrieval and recover Q4 without a wide top_n.
+- Method: change chunking in index_book.py, DELETE chroma_db, re-index, re-run full eval, manual score, compare per-question vs Exp 2 (19/20). One variable at a time: first sentence-splitting at 512, then sizes 256 / 1024.
+- Watch: don't break Q5 (the bridge chunk) while fixing Q4. Check the whole set, not just Q4.
 
 ---
 
