@@ -10,14 +10,17 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 | Experiment 1 | Remove index pages 521-533 | 682 | 16 | 2 | 2 | REGRESSION. Q5 Correct->Wrong; removed index page 527 was the only retrieved chunk with keyword "evaluation", accidentally bridging Q5's two topics |
 | Experiment 2 | Reranking: bi-encoder top_k=20 -> cross-encoder (bge-reranker-base) top_n=3 | 682 | 19 | 1 | 0 | BEST SO FAR (+3 vs Exp 1). Q5 recovered. Q4 regressed Correct->Partial. Cross-encoder scores far more calibrated |
 | Exp 2 sub-tests | top_n=4, then top_n=8 (Q4 investigation only) | 682 | (19) | (1) | 0 | top_n=4 no change. top_n=8 recovers Q4 but only by including a rank-6 chunk scored 0.144 - blunt, pads every other question. Not adopted globally. See Q4 investigation below |
+| Exp 3a | chunk_size=256 / overlap=25 + reranking | ~1300 | 16 | 4 | 0 | REGRESSION vs Exp 2. Smaller chunks = cleaner embeddings (high scores) but THIN answers, less context. Q9/Q20 lost detail; Q4 still Partial (chunk size didn't fix reranker demotion). 512 > 256 |
+| Exp 3b | chunk_size=1024 / overlap=100 + reranking | ~400 | 19 | 1 | 0 | Matches Exp 2. RECOVERED Q4 (bigger chunks keep both comparison topics together), fuller answers. But Q20 partial (formula chunk p145 dropped by reranker). CAVEAT: run on a different PDF file than earlier experiments |
 
 ## Current system config
 
-- Corpus: 682 chunks (index pages 521-533 removed), chunk_size=512 / overlap=50
+- Corpus: index pages 521-533 removed; chunk_size=1024 / overlap=100 (~400 chunks). [Was 512/50 through Exp 2; chose 1024 after chunking arc]
 - Embeddings: BAAI/bge-small-en-v1.5 (bi-encoder, local)
 - Retrieval: bi-encoder top_k=20 -> cross-encoder rerank (BAAI/bge-reranker-base) -> top_n=3
 - LLM: claude-sonnet-4-5 via llama-index-llms-anthropic
-- Best result: 19/20 correct (Exp 2)
+- Best result: 19/20 correct (Exp 2 at 512, and Exp 3b at 1024 - both 19/20 on different partials)
+- NOTE: Exp 3a/3b were run on a holiday laptop with a DIFFERENT PDF file than earlier experiments. Re-verify on the original PDF / main machine before finalizing, to remove the PDF as an uncontrolled variable.
 
 ## How to run an experiment (process checklist)
 
@@ -57,24 +60,36 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 ### Q4 investigation (CLOSED)
 Question: "What's the difference between quantization and distillation?"
 - Baseline (no rerank, top_k=3): Q4 CORRECT - bi-encoder ranks the distillation-definition chunk (p419) 3rd, it makes the cut.
-- Reranking (top_n=3/4): Q4 PARTIAL - cross-encoder scores the distillation-definition chunk at only 0.144 (rank 6), demoting it below the cutoff. The reranker under-weights the SECONDARY topic ("distillation") in a two-topic comparison dominated by quantization chunks (top chunk scored 0.918).
+- Reranking (top_n=3 and top_n=4 -- which is Experiment 2A): Q4 PARTIAL - cross-encoder scores the distillation-definition chunk at only 0.144 (rank 6), demoting it below the cutoff. The reranker under-weights the SECONDARY topic ("distillation") in a two-topic comparison dominated by quantization chunks (top chunk scored 0.918).
 - top_n=8: recovers Q4, but only by widening enough to include the rank-6 chunk - pads every other question with low-relevance context (chunks scored 0.05-0.18). Blunt instrument; NOT adopted globally.
 - Likely root cause: the p419 chunk has a ragged boundary - it STARTS with unrelated "data lineage" text and only reaches the distillation definition halfway through, diluting its relevance score. Candidate for fixing via better CHUNKING (Session 9) rather than a wide top_n.
 - Decision: keep top_n=3; do NOT chase Q4 further in isolation. Revisit after chunking.
 - Bug found + fixed: inspect_retrieval.py was importing from `query` (baseline) not `query_rerank` - it had been inspecting the wrong engine. Fixed.
 
-## Open threads / future experiments
-- CHUNKING (Session 9, next): sentence-boundary splitting; chunk sizes 256 / 512 / 1024; one variable at a time, re-index each. May fix Q4 properly (cleaner distillation chunk) AND help broadly.
-- top_k sweep (3 / 5 / 8) as a single documented experiment measuring the cost/quality curve.
-- LLM-as-judge: validate against the 20 human-scored answers; test specifically whether it catches the Q14 false-pass.
-- Relevance threshold for out-of-corpus, using calibrated cross-encoder scores.
-- Hybrid search (vector + BM25): OPTIONAL now - reranking already fixed Q5, and Q4's chunk is semantically retrieved (rank 3), so BM25 isn't needed there. Park unless a future question needs exact-term matching.
-- Rigor: rerun eval 2-3x and average before the week-3 writeup to firm up numbers.
+### Chunking arc (Experiment 3) — CLOSED
+Tested three chunk sizes, reranking held constant:
+- 256: 16/20 - thin answers, less context per chunk. Too small.
+- 512: 19/20 (= Exp 2 baseline) - Q4 partial, but Q20 formula retrieved.
+- 1024: 19/20 - Q4 RECOVERED (bigger chunks keep both comparison topics together), fuller answers, but Q20 formula chunk (p145) dropped.
+- KEY FINDING: chunk size is a TRADEOFF, not a strict improvement. Larger chunks help comparison/synthesis questions (need context held together) but can hurt precision-retrieval questions (need one specific fact/formula chunk to survive to top-3). No single size is optimal for all question types. 512 and 1024 both hit 19/20 but on DIFFERENT partials.
+- Chosen config: chunk_size=1024 (richer answers, Q4 recovered). Documented Q20 edge case rather than chasing it.
 
-## Session 9 plan: chunking experiments
-- Hypothesis: ragged fixed-token chunk boundaries dilute embeddings and relevance scores (see Q4 p419 chunk). Sentence-boundary splitting and/or different chunk sizes may improve retrieval and recover Q4 without a wide top_n.
-- Method: change chunking in index_book.py, DELETE chroma_db, re-index, re-run full eval, manual score, compare per-question vs Exp 2 (19/20). One variable at a time: first sentence-splitting at 512, then sizes 256 / 1024.
-- Watch: don't break Q5 (the bridge chunk) while fixing Q4. Check the whole set, not just Q4.
+### Q20 investigation (CLOSED)
+Question: "How does entropy and cross-entropy relate?" - Partial at 1024 (missing formula H(P,Q)=H(P)+DKL(P||Q)).
+- NOT a PDF/extraction issue. Confirmed via `--pool`: the formula chunk (page 145) IS in the corpus, extracts cleanly ("...cross entropy with respect to the training data is therefore: H(P,Q) = H(P) + DKL..."), and the bi-encoder retrieves it at RANK 2.
+- Cause: the RERANKER dropped page 145 from the top-3, keeping prose pages 143/144/146 instead.
+- SAME mechanism as Q4: the cross-encoder under-weights terse, notation/fact-heavy chunks vs. explanatory prose. TWO independent cases (Q4 student/teacher chunk, Q20 formula chunk) = a real reranker bias, not a one-off.
+- Fix (deferred): reranker-side - higher top_n, or don't rerank precise-fact questions as aggressively. Not a chunking or PDF fix.
+
+## Open threads / future experiments
+- CHUNKING: DONE (Exp 3). Chose 1024. See chunking arc above.
+- Reranker bias (NEW, from Q4 + Q20): cross-encoder under-weights terse fact/formula chunks vs prose. Candidate fix: selective / higher top_n for precise-fact questions. Worth a dedicated experiment.
+- LLM-as-judge: validate against the 20 human-scored answers; test specifically whether it catches the Q14 false-pass. (Higher-value next milestone.)
+- Relevance threshold for out-of-corpus, using calibrated cross-encoder scores.
+- top_k sweep (3 / 5 / 8) as a single documented experiment measuring the cost/quality curve.
+- Hybrid search (vector + BM25): OPTIONAL - reranking already fixed Q5, and Q4/Q20 chunks are semantically retrieved (rank 2-3), so BM25 isn't needed. Park unless a future question needs exact-term matching.
+- Re-verify Exp 3 on the ORIGINAL PDF / main machine (holiday runs used a different PDF file - uncontrolled variable).
+- Rigor: rerun eval 2-3x and average before the week-3 writeup to firm up numbers.
 
 ---
 

@@ -29,11 +29,14 @@ def build_index():
     # 4. Configure how text is split into chunks.
     #    chunk_size = max tokens per chunk; chunk_overlap = shared tokens between neighbors.
     #    These are starting values — we tune them in week 2.
-    Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+    CHUNK_SIZE = 1024       # Experiment 3A: was 512
+    CHUNK_OVERLAP = 100     # proportional to chunk size
+
+    Settings.node_parser = SentenceSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
 
     # 5. Set up ChromaDB as a persistent local vector store.
     #    PersistentClient writes to disk, so the index survives between runs.
-    print("Setting up ChromaDB...")
+    print(f"Building index (chunk_size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP})...")
     db = chromadb.PersistentClient(path="./chroma_db")
     # Delete any existing collection so re-indexing replaces rather than appends
     try:
