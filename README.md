@@ -24,21 +24,25 @@ python ask.py
 
 ## Approach: evaluation-driven development
 
-Every change is measured against a fixed set of 20 hand-written Q&A pairs with verified reference answers (`eval_set.py`). Manual scoring is the source of truth. Each experiment changes one variable, is scored against the same eval set, and is recorded with its result — including regressions. The eval results table is the project's central artifact.
+Every change is measured against a fixed set of 20 hand-written Q&A pairs with verified reference answers (`eval_set.py`). Each experiment changes one variable, is scored against the same eval set, and is recorded with its result — including regressions. The eval results table is the project's central artifact.
 
-## Results so far
+Scoring evolved over the project: manual human scoring first (the source of truth), then an **LLM-as-judge** (`judge.py`) validated against those human scores and adopted at `temperature=0` for reproducibility.
+
+## Results
 
 | Experiment | Change | Correct / 20 |
 |-----------|--------|--------------|
 | Baseline | vector search, top_k=3 | 17 |
 | Corpus cleaning | remove back-of-book index | 16 (regression — see notes) |
 | Reranking | bi-encoder top_k=20 → cross-encoder → top_3 | 19 |
-| Chunking | tested 256 / 512 / 1024 | 19 (best; chunk size is a tradeoff) |
+| Chunking | tested 256 / 512 / 1024 | best at 512–1024 |
+| Re-scored (post-judge) | 1024 run, stricter semantic grading | 17 |
 
 Selected findings (full detail in `eval_notes.md`):
-- Cleaning the corpus caused a regression — a junk index chunk was accidentally "load-bearing" for one synthesis question. Aggregate scores can hide per-question regressions.
-- Reranking (cross-encoder) gave the biggest gain, but demotes terse fact/formula chunks in favour of prose — hurting a couple of precision questions.
-- Chunk size is a tradeoff, not a strict improvement: larger chunks help comparison/synthesis questions, smaller help precision retrieval.
+- **Cleaning the corpus caused a regression** — a junk index chunk was accidentally "load-bearing" for one synthesis question. Aggregate scores can hide per-question regressions.
+- **Reranking gave the biggest gain**, but the cross-encoder demotes terse fact/formula chunks in favour of prose — hurting a couple of precision questions (two independent cases).
+- **Chunk size is a tradeoff, not a strict improvement**: larger chunks help comparison/synthesis questions, smaller help precision retrieval.
+- **LLM-as-judge**: validated against human scores (caught real gaps human scoring missed), but exhibited hallucination (bleeding the reference answer into its assessment) and non-determinism at default temperature. Fixed reproducibility with `temperature=0`; adopted as a scorer plus a flag for human review, not a blind replacement.
 
 ## Status
 
@@ -50,7 +54,7 @@ Selected findings (full detail in `eval_notes.md`):
 - [x] Corpus cleaning experiment
 - [x] Reranking (cross-encoder)
 - [x] Chunking experiments (256 / 512 / 1024)
-- [ ] LLM-as-judge (automated scoring)
+- [x] LLM-as-judge (automated semantic scoring)
 - [ ] Prompt tuning
 - [ ] Streamlit UI
 - [ ] Final writeup with eval results

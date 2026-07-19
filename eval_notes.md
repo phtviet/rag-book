@@ -6,12 +6,14 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 
 | Experiment | Change | Chunks | Correct | Partial | Wrong | Note |
 |-----------|--------|--------|---------|---------|-------|------|
-| Baseline | top_k=3, chunk 512/50, full corpus | 706 | 17 | 2 | 1 | Auto-score unreliable (1 false pass Q14, 1 false fail Q17) |
+| Baseline | top_k=3, chunk 512/50, full corpus | 706 | 17 | 2 | 1 | Auto-score unreliable: substring matching is brittle (Q17 correct refusal marked FAIL because its phrasing "can't provide" wasn't in the decline-signal list) |
 | Experiment 1 | Remove index pages 521-533 | 682 | 16 | 2 | 2 | REGRESSION. Q5 Correct->Wrong; removed index page 527 was the only retrieved chunk with keyword "evaluation", accidentally bridging Q5's two topics |
 | Experiment 2 | Reranking: bi-encoder top_k=20 -> cross-encoder (bge-reranker-base) top_n=3 | 682 | 19 | 1 | 0 | BEST SO FAR (+3 vs Exp 1). Q5 recovered. Q4 regressed Correct->Partial. Cross-encoder scores far more calibrated |
 | Exp 2 sub-tests | top_n=4, then top_n=8 (Q4 investigation only) | 682 | (19) | (1) | 0 | top_n=4 no change. top_n=8 recovers Q4 but only by including a rank-6 chunk scored 0.144 - blunt, pads every other question. Not adopted globally. See Q4 investigation below |
 | Exp 3a | chunk_size=256 / overlap=25 + reranking | ~1300 | 16 | 4 | 0 | REGRESSION vs Exp 2. Smaller chunks = cleaner embeddings (high scores) but THIN answers, less context. Q9/Q20 lost detail; Q4 still Partial (chunk size didn't fix reranker demotion). 512 > 256 |
 | Exp 3b | chunk_size=1024 / overlap=100 + reranking | ~400 | 19 | 1 | 0 | Matches Exp 2. RECOVERED Q4 (bigger chunks keep both comparison topics together), fuller answers. But Q20 partial (formula chunk p145 dropped by reranker). CAVEAT: run on a different PDF file than earlier experiments |
+| Exp 3b (re-scored) | same run, re-graded after LLM-judge validation | ~400 | 17 | 3 | 0 | TRUE score of the 1024 run. Q5 & Q8 revised Correct->Partial (judge caught real gaps human scoring missed). Q20 partial (formula). |
+| Exp 4 | LLM-as-judge (semantic scorer), temperature=0 | - | - | - | - | Not a RAG change - an eval-method change. Reproducible 20/20/20 across 3 runs. 15/20 agreement vs independent human labels; found 2 real human-scoring gaps + 1 judge hallucination. ADOPTED with caveats. See detail below. |
 
 ## Current system config
 
@@ -19,7 +21,8 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 - Embeddings: BAAI/bge-small-en-v1.5 (bi-encoder, local)
 - Retrieval: bi-encoder top_k=20 -> cross-encoder rerank (BAAI/bge-reranker-base) -> top_n=3
 - LLM: claude-sonnet-4-5 via llama-index-llms-anthropic
-- Best result: 19/20 correct (Exp 2 at 512, and Exp 3b at 1024 - both 19/20 on different partials)
+- Scoring: LLM-as-judge (temperature=0) ADOPTED as of Exp 4. Manual score remains ground truth for validating the judge.
+- Best result: 1024 run = 17C/3P under the stricter post-judge standard (was recorded 19/1 before re-scoring). Earlier runs (Baseline/Exp1/Exp2) were scored under the more lenient pre-judge bar and are NOT strictly comparable - re-judge uniformly if a clean cross-experiment comparison is needed.
 - NOTE: Exp 3a/3b were run on a holiday laptop with a DIFFERENT PDF file than earlier experiments. Re-verify on the original PDF / main machine before finalizing, to remove the PDF as an uncontrolled variable.
 
 ## How to run an experiment (process checklist)
@@ -27,7 +30,7 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 1. Write a PREDICTION before running (commit to it; the prediction-vs-result gap is where the learning is).
 2. Change ONE variable only. Hold everything else constant vs. the current baseline.
 3. Rename the previous `eval_run_*.md` so it isn't overwritten.
-4. Run `run_eval.py`; MANUALLY score all 20 (manual = source of truth).
+4. Run `run_eval.py` (pass an output filename, e.g. `python run_eval.py eval_run_expN.md`). Score with the judge (`python judge.py <file>`, temperature=0). For a CLEAN validation, hand-score BEFORE judging so labels aren't contaminated by the judge.
 5. Compare per-question vs. the prior run - a flat total can hide a compositional change (see Exp 1).
 6. Add a row to the results table + a detail entry below. Note any regression honestly.
 7. Caveat for small deltas: LLM is non-deterministic; rerun 2-3x and average to separate signal from noise.
@@ -37,7 +40,7 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 ### Baseline
 - 20 hand-written Q&A pairs, verified reference answers written from the book.
 - Result: 17 correct / 2 partial / 1 wrong.
-- Meta-finding: substring auto-scoring gave 1 false PASS (Q14 - right keywords, wrong answer) and 1 false FAIL (Q17 - correct safety refusal not matched by decline-heuristic). Motivates LLM-as-judge.
+- Meta-finding: substring auto-scoring is BRITTLE. Q17 (correct safety refusal) was marked FAIL by the automated checker purely because its phrasing "I can't provide..." wasn't in the decline-signal keyword list. We patched the list, but that's the point - every new phrasing risks a new wrong verdict. Keyword matching can't assess meaning. (Correction: an earlier note claimed Q14 was a false PASS - that was a scoring mistake on my end; prompt extraction IS in the book, so Q14 was correctly a PASS. No false-pass example exists.) Motivates LLM-as-judge for semantic scoring.
 
 ### Experiment 1: Corpus cleaning
 - Change: removed back-of-book index, pages 521-533. Chunk count 706 -> 682.
@@ -81,10 +84,32 @@ Question: "How does entropy and cross-entropy relate?" - Partial at 1024 (missin
 - SAME mechanism as Q4: the cross-encoder under-weights terse, notation/fact-heavy chunks vs. explanatory prose. TWO independent cases (Q4 student/teacher chunk, Q20 formula chunk) = a real reranker bias, not a one-off.
 - Fix (deferred): reranker-side - higher top_n, or don't rerank precise-fact questions as aggressively. Not a chunking or PDF fix.
 
+### LLM-as-judge (Experiment 4) — BUILT, VALIDATED, ADOPTED (with caveats)
+Goal: replace slow manual scoring + brittle substring matching with automated *semantic* scoring. A judge takes (question, verified reference answer, generated answer, category) and returns correct/partial/wrong + a rationale, judged AGAINST the reference (not the model's own memory).
+
+Build:
+- `judge.py` - Claude call with a rubric prompt; `parse_eval_run.py` reads generated answers VERBATIM from an eval_run file (no transcription/paraphrase between system output and judge input - an earlier hand-built dict had condensed the answers, which would have corrupted the validation).
+- Rubric defines correct/partial/wrong per question type (factual, comparison, synthesis, out_of_corpus), judging meaning not phrasing.
+
+Validation (judge verdict vs independent human scores):
+- v1 prompt: 15/20 agreement (75%). ALL 5 mismatches same direction - judge STRICTER than human. Rationales were sound: it held answers to the reference's completeness.
+- Two genuine gaps found where the judge was right and I was lenient: Q8 (answer missed the CORE property that embeddings place similar items nearby / cosine similarity) and Q5 (missed the causal link: optimization can degrade quality, so evaluation is needed). Human scores revised. 1024 run's true score: 17C / 3P (not 19/1).
+- v2 prompt (refined): pulled the "NEVER penalise extra accurate content" rule to the top as a numbered IMPORTANT rule, and added a CORE-vs-SECONDARY distinction. This FIXED the Q13 over-strictness (judge had penalised *added* correct best-practices, violating my own rubric) but persistent strictness remained on Q1/Q9 (secondary list items).
+
+Two real failure modes found:
+1. HALLUCINATION / reference contamination: on Q20 the judge's rationale asserted the answer contained the formula H(P,Q)=H(P)+DKL(P||Q) - but that formula is only in the REFERENCE, not the answer. The judge bled ground-truth into its assessment of the thing it was grading. This makes rationale-inspection (the only audit tool) unreliable.
+2. NON-DETERMINISM: ran the same file 3x -> 20/19/20. The single flip was Q20 (a genuinely borderline correct-vs-partial answer, prose relationship but no notation). Variance concentrates exactly where judgment is hardest.
+
+Fix for non-determinism: set temperature=0 (greedy decoding) in the judge's API call. Default temp=1.0 SAMPLES from the token distribution -> different verdicts on borderline cases. temp=0 = deterministic component behaviour (correct setting for judges/classifiers/extractors, not creative writing). Re-ran 3x -> 20/20/20, stable. Q20 hallucination also stopped recurring (greedy path lands on "partial").
+
+Adoption decision: ADOPTED at temperature=0, as a reproducible scorer AND a second-opinion flag for human review - NOT a blind replacement. Caveats recorded: (a) calibration was validated on a set I then revised toward the judge, so the clean independent-agreement number is 15/20; the first uncontaminated test is the NEXT experiment (hand-score before judging). (b) The reference answers were largely drafted from the RAG's own output and only partly verified against the book, so the judge partly enforces reference-drafting choices - keep human judgment in the loop, esp. on "is X core or secondary" calls (e.g. Q1).
+
+Key concept learned: an LLM outputs a probability DISTRIBUTION over next tokens (deterministic); DECODING turns that into a token. Greedy=argmax (temp 0). Sampling=weighted-random pick by probability (temp>0). Other strategies: top-k (keep k likeliest), top-p/nucleus (keep smallest set summing to p - adaptive), min-p, beam search (best whole-sequence). Randomness lives in the decoding, not the model.
+
 ## Open threads / future experiments
 - CHUNKING: DONE (Exp 3). Chose 1024. See chunking arc above.
 - Reranker bias (NEW, from Q4 + Q20): cross-encoder under-weights terse fact/formula chunks vs prose. Candidate fix: selective / higher top_n for precise-fact questions. Worth a dedicated experiment.
-- LLM-as-judge: validate against the 20 human-scored answers; test specifically whether it catches the Q14 false-pass. (Higher-value next milestone.)
+- LLM-as-judge: DONE (Exp 4). Adopted at temperature=0. Remaining: (a) run one CLEAN validation - hand-score a fresh run before judging - to get an uncontaminated agreement number; (b) audit for the reference-contamination/hallucination failure mode on borderline items; (c) consider re-judging ALL saved runs uniformly for cross-experiment comparability.
 - Relevance threshold for out-of-corpus, using calibrated cross-encoder scores.
 - top_k sweep (3 / 5 / 8) as a single documented experiment measuring the cost/quality curve.
 - Hybrid search (vector + BM25): OPTIONAL - reranking already fixed Q5, and Q4/Q20 chunks are semantically retrieved (rank 2-3), so BM25 isn't needed. Park unless a future question needs exact-term matching.

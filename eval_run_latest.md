@@ -2,7 +2,7 @@
 
 Auto-pass: 16/20
 
-19 Correct / 1 Partial
+17 Correct / 3 Partial
 
 ## Q1 [PASS] (factual)
 
@@ -16,7 +16,7 @@ In the context of machine learning, quantization is used to refer to techniques 
 
 **Retrieved:** pages=[344, 148, 352] scores=[0.554, 0.464, 0.428]
 
-**Manual score:** Correct.
+**Manual score:** Partial (omits the core concept that quantization also speeds up computation, and misses mentioning the different approaches (PTQ, quantization-aware training, direct low-precision training)).
 
 ---
 
@@ -80,7 +80,7 @@ The relationship between them is that both are critical for successful AI applic
 
 **Retrieved:** pages=[430, 68, 429] scores=[0.787, 0.762, 0.741]
 
-**Manual score:** Correct.
+**Manual score:** Partial (missing the causal link: optimization can degrade quality, so evaluation is needed to verify speed/cost gains don't compromise it).
 
 ---
 
@@ -126,7 +126,7 @@ Various models are trained specifically to produce embeddings, including open so
 
 **Retrieved:** pages=[158, 295, 286] scores=[0.077, 0.028, 0.022]
 
-**Manual score:** Correct.
+**Manual score:** Partial (missing the core property: embeddings are positioned so similar items have nearby vectors).
 
 ---
 
@@ -151,7 +151,7 @@ The goal of these optimization techniques is to make models faster and cheaper w
 
 **Retrieved:** pages=[429, 464, 450] scores=[0.977, 0.976, 0.963]
 
-**Manual score:** Correct.
+**Manual score:** Partial (misses core specific techniques: quantization (most impactful), distillation, attention optimization (KV cache, efficient kernels), and parallelism (tensor, replica), which are fundamental to inference optimization.)
 
 ---
 

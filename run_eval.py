@@ -1,3 +1,4 @@
+import sys
 import time
 from query_rerank import load_query_engine
 from eval_set import EVAL_SET
@@ -30,6 +31,7 @@ def query_with_retry(query_engine, question: str, max_retries: int = 3):
 
 
 def main():
+    out_file = sys.argv[1] if len(sys.argv) > 1 else "eval_run_latest.md"
     print("Loading query engine...")
     query_engine = load_query_engine()
     print(f"Running {len(EVAL_SET)} eval questions...\n")
@@ -82,8 +84,8 @@ def main():
         print(f"       pages={r['pages']} scores={r['scores']}")
 
     # Save full answers to a file for manual review
-    with open("eval_run_baseline.md", "w", encoding="utf-8") as f:
-        f.write("# Eval run — BASELINE (current system)\n\n")
+    with open(out_file, "w", encoding="utf-8") as f:
+        f.write(f"# Eval run — {out_file}\n\n")
         f.write(f"Auto-pass: {passed}/{len(results)}\n\n")
         for r in results:
             mark = "PASS" if r["auto_pass"] else "FAIL"
@@ -93,7 +95,7 @@ def main():
             f.write(f"**Retrieved:** pages={r['pages']} scores={r['scores']}\n\n")
             f.write("**Manual score:** \n\n---\n\n")
 
-    print("\nFull answers written to eval_run_baseline.md for manual review.")
+    print(f"\nFull answers written to {out_file} for manual review.")
 
 
 if __name__ == "__main__":
