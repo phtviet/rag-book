@@ -14,6 +14,8 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 | Exp 3b | chunk_size=1024 / overlap=100 + reranking | ~400 | 19 | 1 | 0 | Matches Exp 2. RECOVERED Q4 (bigger chunks keep both comparison topics together), fuller answers. But Q20 partial (formula chunk p145 dropped by reranker). CAVEAT: run on a different PDF file than earlier experiments |
 | Exp 3b (re-scored) | same run, re-graded after LLM-judge validation | ~400 | 17 | 3 | 0 | TRUE score of the 1024 run. Q5 & Q8 revised Correct->Partial (judge caught real gaps human scoring missed). Q20 partial (formula). |
 | Exp 4 | LLM-as-judge (semantic scorer), temperature=0 | - | - | - | - | Not a RAG change - an eval-method change. Reproducible 20/20/20 across 3 runs. 15/20 agreement vs independent human labels; found 2 real human-scoring gaps + 1 judge hallucination. ADOPTED with caveats. See detail below. |
+| Exp 5 | Faithfulness+declining prompt (v1: naive) | ~400 | 15 | 5 | 0 | REGRESSION vs 17/20. "Answer only from context; decline if absent" WORKED (France refused, out-of-corpus clean) but a "shorter is better" rule caused UNDER-EXTRACTION of grounded detail. Q1/Q9 thinned. |
+| Exp 5b | Faithfulness prompt (v2: rebalanced) | ~400 | 17 | 3 | 0 | FIXED. Replaced "shorter is better" with "be THOROUGH with grounded specifics". Recovered Q5/Q8. Back to 17/20 WITH faithfulness intact. Q9 still partial = retrieval-recall gap (techniques on un-retrieved pages), not a generation failure. ADOPTED. |
 
 ## Current system config
 
@@ -21,9 +23,10 @@ _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI 
 - Embeddings: BAAI/bge-small-en-v1.5 (bi-encoder, local)
 - Retrieval: bi-encoder top_k=20 -> cross-encoder rerank (BAAI/bge-reranker-base) -> top_n=3
 - LLM: claude-sonnet-4-5 via llama-index-llms-anthropic
+- Generation prompt: FAITHFULNESS+DECLINING chat template (Exp 5b) - system message: answer only from context, decline if absent, be thorough with grounded specifics, no "based on the context" preamble. Overrides the chat QA template (response_synthesizer:text_qa_template with a ChatPromptTemplate).
 - Scoring: LLM-as-judge (temperature=0) ADOPTED as of Exp 4. Manual score remains ground truth for validating the judge.
-- Best result: 1024 run = 17C/3P under the stricter post-judge standard (was recorded 19/1 before re-scoring). Earlier runs (Baseline/Exp1/Exp2) were scored under the more lenient pre-judge bar and are NOT strictly comparable - re-judge uniformly if a clean cross-experiment comparison is needed.
-- NOTE: Exp 3a/3b were run on a holiday laptop with a DIFFERENT PDF file than earlier experiments. Re-verify on the original PDF / main machine before finalizing, to remove the PDF as an uncontrolled variable.
+- Best result: 17C/3P (1024 + reranking + faithfulness prompt). Remaining 3 partials: Q1 (missing quantization types - not in retrieved chunks), Q9 (missing techniques on un-retrieved pages - retrieval-recall gap), Q20 (formula chunk dropped by reranker).
+- PDF: CONFIRMED same file across machines (holiday laptop uses the same PDF). The earlier different-PDF worry is RESOLVED - results are comparable.
 
 ## How to run an experiment (process checklist)
 
@@ -106,10 +109,32 @@ Adoption decision: ADOPTED at temperature=0, as a reproducible scorer AND a seco
 
 Key concept learned: an LLM outputs a probability DISTRIBUTION over next tokens (deterministic); DECODING turns that into a token. Greedy=argmax (temp 0). Sampling=weighted-random pick by probability (temp>0). Other strategies: top-k (keep k likeliest), top-p/nucleus (keep smallest set summing to p - adaptive), min-p, beam search (best whole-sequence). Randomness lives in the decoding, not the model.
 
+### Faithfulness + declining prompt (Experiment 5) — ADOPTED
+Goal: stop the model answering from prior/parametric knowledge; make it answer ONLY from retrieved context and decline when the context is insufficient. Motivated by earlier Q2 "40%" leakage worry.
+
+Diagnostic first (before changing anything):
+- Inspected the default prompts (`inspect_prompts.py` -> `get_prompts()`). Found FOUR templates: text_qa + refine, and CHAT versions of each. The default's anti-leakage instruction ("...and not prior knowledge") is a single weak buried clause.
+- Tested which template actually fires (`test_which_prompt.py`): overrode the plain text_qa template with an obvious marker; the marker did NOT appear -> the CHAT template (chat_content_qa_template) is the one that fires (Claude is a chat model). Overriding the plain template alone would have done nothing.
+
+Build: overrode with a ChatPromptTemplate (system + user messages), faithfulness rules in the SYSTEM message (highest authority). Confirmed override took effect: asked "capital of France?" -> model DECLINED (suppressed rock-solid parametric knowledge) = proof faithfulness controls generation.
+
+v1 (naive) result: 15/20 (down from 17). Two lessons:
+- Faithfulness WORKED: France refused; out-of-corpus stayed clean.
+- But a rule "a shorter grounded answer is better than a fuller one" caused UNDER-EXTRACTION - the model became terse and skipped grounded detail. Also, removing the default template's "don't say 'based on the context'" rule made every answer start with "Based on the provided context".
+- CRITICAL diagnostic: for Q9, checked the retrieved chunks (`inspect_retrieval.py`). The dropped detail (compiler tools TVM/TensorRT, batching types) WAS in the chunks - so this was under-extraction of GROUNDED content, NOT correct suppression of parametric content. (My initial guess that it was parametric leakage was WRONG - checking the chunks corrected it.)
+
+v2 (rebalanced) result: 17/20. Fix: replaced "shorter is better" with an explicit rule to be THOROUGH with details the context DOES contain (names, techniques, figures), while still forbidding outside knowledge. Added a no-preamble rule. Recovered Q5 and Q8 to Correct. Q9's grounded batching/compiler detail is now included.
+- Q9 STILL partial, but correctly so: the reference lists techniques (quantization, distillation, KV cache, parallelism) that live on pages NOT in the top-3 retrieved chunks. A faithful system can't include what it didn't retrieve. This is a RETRIEVAL-RECALL gap on a broad synthesis question, not a generation failure. (top_k=5 is a candidate fix - deferred.)
+
+KEY FINDING: naive faithfulness prompting trades completeness for grounding, BUT that tradeoff is largely a PROMPT BUG (brevity bias), not fundamental. A rebalanced prompt achieves faithfulness AND completeness (17/20, no leakage). Faithfulness and completeness are NOT in hard conflict - the first prompt just told the model to be short.
+Decision: ADOPTED. For a RAG system over a specific book, grounded-only answers are the honest goal; the rebalanced prompt keeps answers rich without leaking. Remaining 3 partials are all retrieval-side (Q1/Q9 recall gaps, Q20 reranker demotion), not generation-side.
+
 ## Open threads / future experiments
 - CHUNKING: DONE (Exp 3). Chose 1024. See chunking arc above.
 - Reranker bias (NEW, from Q4 + Q20): cross-encoder under-weights terse fact/formula chunks vs prose. Candidate fix: selective / higher top_n for precise-fact questions. Worth a dedicated experiment.
 - LLM-as-judge: DONE (Exp 4). Adopted at temperature=0. Remaining: (a) run one CLEAN validation - hand-score a fresh run before judging - to get an uncontaminated agreement number; (b) audit for the reference-contamination/hallucination failure mode on borderline items; (c) consider re-judging ALL saved runs uniformly for cross-experiment comparability.
+- Prompt tuning: DONE (Exp 5). Faithfulness+declining adopted.
+- Retrieval recall for broad synthesis questions (Q9): the top-3 chunks don't cover all techniques the question deserves (they're spread across the chapter). Candidate fix: higher top_k (e.g. 5) for recall, measured against the whole set. NOW a legitimate targeted experiment (confirmed the missing detail is on un-retrieved pages, not parametric).
 - Relevance threshold for out-of-corpus, using calibrated cross-encoder scores.
 - top_k sweep (3 / 5 / 8) as a single documented experiment measuring the cost/quality curve.
 - Hybrid search (vector + BM25): OPTIONAL - reranking already fixed Q5, and Q4/Q20 chunks are semantically retrieved (rank 2-3), so BM25 isn't needed. Park unless a future question needs exact-term matching.
