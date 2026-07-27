@@ -2,6 +2,8 @@
 
 _This is the single living lab notebook for Project 1 (RAG over Chip Huyen's AI Engineering book). Updated each session, then pushed to GitHub. Manual score is the source of truth throughout; automated substring score is unreliable._
 
+**Status: Project 1 COMPLETE.** Build + 6 measured experiments (corpus cleaning, reranking, chunking, LLM-as-judge, faithfulness prompt) + Streamlit UI + writeup. Final system: 1024 chunks, bi-encoder top_k=20 -> cross-encoder rerank -> top_n=3, faithfulness prompt, LLM-as-judge (temp=0) for scoring. Best result 17/20 on a deliberately hard eval; remaining misses are retrieval-recall gaps + one reranker limitation, all documented below.
+
 ## Eval results table (the project's most important artifact)
 
 | Experiment | Change | Chunks | Correct | Partial | Wrong | Note |

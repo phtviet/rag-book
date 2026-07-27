@@ -2,7 +2,9 @@
 
 A retrieval-augmented generation system built over Chip Huyen's *AI Engineering: Building Applications with Foundation Models*.
 
-This is project 1 of 3 in a focused sprint to build AI engineering skills. The goal is to deeply understand RAG systems by building one end-to-end, evaluating it rigorously, and documenting what worked and what didn't. See `eval_notes.md` for the full experiment log and results.
+This is project 1 of 3 in a focused sprint to build AI engineering skills. The goal is to deeply understand RAG systems by building one end-to-end, evaluating it rigorously, and documenting what worked and what didn't.
+
+**Writeup:** [What building a RAG system taught me about evaluation](WRITEUP.md) — the story of the project and its main findings. Full experiment log in `eval_notes.md`.
 
 ## Setup
 
@@ -20,6 +22,9 @@ uv pip install -r requirements.txt
 # Build the index (chunk + embed the book), then query it
 python index_book.py
 python ask.py
+
+# Or launch the web app
+streamlit run app.py --server.fileWatcherType none
 ```
 
 ## Approach: evaluation-driven development
@@ -31,6 +36,10 @@ Scoring evolved over the project: manual human scoring first (the source of trut
 ## Current system
 
 Retrieval: bi-encoder retrieves a pool of 20 candidates (`BAAI/bge-small-en-v1.5`), a cross-encoder reranker (`BAAI/bge-reranker-base`) re-scores them and keeps the top 3. Chunking: 1024 tokens / 100 overlap. Generation: Claude with a faithfulness prompt that answers only from retrieved context and declines when the context is insufficient.
+
+## Web app
+
+`app.py` is a Streamlit interface over the same query engine: a question box (with example questions), the generated answer, and expandable source chunks showing which book pages the answer drew from and their cross-encoder relevance scores. Out-of-corpus questions render distinctly, showing the system decline rather than answer from outside knowledge.
 
 ## Results
 
@@ -64,8 +73,8 @@ Selected findings (full detail in `eval_notes.md`):
 - [x] Chunking experiments (256 / 512 / 1024)
 - [x] LLM-as-judge (automated semantic scoring)
 - [x] Prompt tuning (faithfulness + declining)
-- [ ] Streamlit UI
-- [ ] Final writeup with eval results
+- [x] Streamlit UI
+- [x] Final writeup with eval results ([WRITEUP.md](WRITEUP.md))
 
 ## Stack
 
