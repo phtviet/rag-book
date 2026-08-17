@@ -2,8 +2,6 @@
 
 A retrieval-augmented generation system built over Chip Huyen's *AI Engineering: Building Applications with Foundation Models*.
 
-This is project 1 of 3 in a focused sprint to build AI engineering skills. The goal is to deeply understand RAG systems by building one end-to-end, evaluating it rigorously, and documenting what worked and what didn't.
-
 **🎥 [Watch a 90-second demo](https://www.youtube.com/watch?v=GpNbsukNZlg)** · **📝 [Writeup: what I learned about evaluation](WRITEUP.md)** · Full experiment log in `eval_notes.md`.
 
 ## Setup
